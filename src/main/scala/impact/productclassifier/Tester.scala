@@ -2,8 +2,8 @@ package impact.productclassifier
 
 import impact.productclassifier.App.spark
 import impact.productclassifier.EstimatorFactory.logistic
+import impact.productclassifier.feature.Util.{loadWord2VecModel, oneHotEncoder, stringIndexer}
 import impact.productclassifier.feature.{TokenNormalizer, TokenizerFactory}
-import impact.productclassifier.feature.Util.{oneHotEncoder, stringIndexer, vectorizer}
 import impact.productclassifier.taxonomy.{Category, Taxonomy}
 import ml.dmlc.xgboost4j.scala.spark.XGBoostClassificationModel
 import org.apache.spark.ml.Pipeline
@@ -17,10 +17,10 @@ import org.apache.spark.mllib.linalg.Matrix
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.IntegerType
-import org.apache.spark.sql.{Column, DataFrame, Row, SaveMode}
+import org.apache.spark.sql.{Column, DataFrame, SaveMode}
 import org.apache.spark.storage.StorageLevel
 
-import java.time.{Duration, Instant}
+import java.time.Instant
 import scala.annotation.tailrec
 import scala.collection.mutable.ArrayBuffer
 
@@ -59,14 +59,7 @@ object Tester {
       .setMinCount(100)
       .setMaxIter(10)
       .setNumPartitions(128)
-    val params = name2Vec.extractParamMap().toSeq
-      .filter(!_.param.name.contains("Col"))
-      .filter(!_.param.name.contains("seed"))
-      .filter(!_.param.name.contains("numPartitions"))
-      .sortBy(_.param.name)
-      .map(pair => s"${pair.param.name}=${pair.value}")
-      .mkString("_")
-    val name2VecModel = Word2VecModel.load(s"gs://product-classifier/model/name2vec/$params/model")
+    val name2VecModel = loadWord2VecModel(name2Vec, "gs://product-classifier/model/name2vec")
     
     val desc2Vec: Word2Vec = new Word2Vec()
       .setInputCol("descriptionTokens").setOutputCol("descriptionVector")
@@ -75,14 +68,7 @@ object Tester {
       .setMinCount(700)
       .setMaxIter(1)
       .setNumPartitions(128)
-    val params2 = desc2Vec.extractParamMap().toSeq
-      .filter(!_.param.name.contains("Col"))
-      .filter(!_.param.name.contains("seed"))
-      .filter(!_.param.name.contains("numPartitions"))
-      .sortBy(_.param.name)
-      .map(pair => s"${pair.param.name}=${pair.value}")
-      .mkString("_")
-    val desc2VecModel = Word2VecModel.load(s"gs://product-classifier/model/desc2vec/$params2/model")
+    val desc2VecModel = loadWord2VecModel(desc2Vec, "gs://product-classifier/model/desc2vec")
     
     val pipeline = new Pipeline().setStages(Array(
       stringIndexer("gender"),
@@ -106,71 +92,6 @@ object Tester {
 
     printPipelineParams(pipeline)
     evaluateOnce(pipeline, "target", trainSet, testSet)
-  }
-  
-  def analyzeTermWeights(): Unit = {
-    val features = Array(
-      "name",
-//      "description",
-    ).map(col)
-    val catCols = (1 to 1).map(i => col(s"cat$i"))
-    val df = DataLoader.readAllData(features ++ catCols: _*)
-    val sample = sampleDataset(df, 5000000, 1)
-    println(s"Num partitions: ${sample.rdd.getNumPartitions}")
-    val normalized = normalizeCategoryIds(sample, taxonomy.root).repartition(200).persist(StorageLevel.DISK_ONLY)
-    
-    val tokenizer = TokenizerFactory.tokenizer("name")
-    val tokenNormalizer = new TokenNormalizer("name")
-    val stopWordsRemover = new StopWordsRemover().setInputCol("nameTokens").setOutputCol("nameFilteredTokens")
-      .setCaseSensitive(true).setStopWords(Array(""))
-    
-    val pipeline = new Pipeline().setStages(Array(
-      tokenizer,
-      tokenNormalizer,
-      stopWordsRemover,
-      vectorizer("nameFiltered", 15000).setOutputCol("nameVector"),
-      new VectorAssembler().setOutputCol("features").setInputCols(Array(
-        "nameVector",
-      )),
-      logistic("target", 20, 0.9, 0)
-      )
-    )
-    val model = pipeline.fit(normalized)
-    val results = model.transform(normalized)
-    val evaluator = new MulticlassClassificationEvaluator().setLabelCol("target")
-    val trainMetrics = evaluator.getMetrics(results)
-    println(Instant.now())
-    println(f"${roundNum(trainMetrics.accuracy)}%-8s")
-    
-    val vocabulary = model.stages(3).asInstanceOf[CountVectorizerModel].vocabulary
-    val logModel = model.stages.last.asInstanceOf[LogisticRegressionModel]
-    val numCoefs = logModel.coefficientMatrix.numRows * logModel.coefficientMatrix.numCols
-    println(logModel.coefficientMatrix.numNonzeros + " / " + numCoefs)
-    println(logModel.summary.objectiveHistory.map(x => roundNum(x)).mkString(", "))
-    
-    val wordCounts: Map[String, Long] = tokenNormalizer.transform(tokenizer.transform(normalized.select($"name")))
-      .select(explode($"nameTokens").as("word"))
-      .groupBy($"word").count()
-      .collect().map(row => (row.getAs[String]("word"), row.getAs[Long]("count"))).toMap
-    val weights: Array[(String, Double)] = logModel.coefficientMatrix.colIter
-      .map(_.toArray.map(_.abs).sum).zipWithIndex
-      .map{case (weight, i) => (vocabulary(i), weight)}.toArray
-    val fillerWords = weights.sortBy(_._2.abs).take(500)
-      .map { case (word, weight) => f"$word%-20s ${roundNum(weight, 3)}%8s ${wordCounts(word)}%10s" }
-      .mkString("\n")
-    println(fillerWords)
-    println("============================================================================")
-    println("============================================================================")
-    println("============================================================================")
-    println("============================================================================")
-    val fillerWords2 = weights
-      .map { case (word, weight) => (word, weight, wordCounts(word))}
-      .sortBy(-_._2).take(500)
-      .map { case (word, weight, count) => f"$word%-20s ${roundNum(weight, 3)}%8s $count%10s" }
-      .mkString("\n")
-    println(fillerWords2)
-    
-    normalized.unpersist()
   }
   
   private def evaluate(pipeline: Pipeline, targetCol: String, dataset: DataFrame): Unit = {
@@ -521,86 +442,6 @@ object Tester {
       .foreach {case (actual, predicted, fraction) => {
         println(f"$actual%-125s  - $predicted%125s  | ${roundNum(100 * fraction)}%6s | ${sizes(actual)}%9s | ${sizes(predicted)}%9s")
       }}
-  }
-  
-  private def computeInfoGainVocabulary(df: DataFrame, vocabSize: Int): Array[String] = {
-    val start = Instant.now()
-    println(s"$start Computing vocabulary")
-    val pipeline = new Pipeline().setStages(Array(
-      TokenizerFactory.tokenizer("words"),
-      new TokenNormalizer("words")
-    ))
-    
-    val data = df
-      .select($"words", concat_ws(" > ", $"cat1", $"cat2").as("category"))
-      .orderBy($"category")
-      .persist(StorageLevel.DISK_ONLY)
-
-    val numRecords: Long = data.count()
-    println(s"${Instant.now()} Computed num records = $numRecords")
-
-    val words = pipeline.fit(data).transform(data).select($"wordsTokens", $"category")
-
-    val wordCategoryCounts = words
-      .select(explode(array_distinct($"wordsTokens")).as("word"), $"category")
-      .groupBy($"word", $"category").count()
-      .persist(StorageLevel.DISK_ONLY)
-    
-    println($"wordCategoryCounts partitions: ${wordCategoryCounts.rdd.getNumPartitions}")
-
-    val categoryIndices: Map[String, Int] = wordCategoryCounts
-      .select($"category").distinct()
-      .collect()
-      .map(_.getAs[String]("category"))
-      .sorted.zipWithIndex.toMap
-    
-    println(s"Computed category indices: ${Instant.now()}")
-
-    val categoryCounts: Array[Long] = data
-      .groupBy($"category").count()
-      .collect()
-      .map(row => (row.getAs[String]("category"), row.getAs[Long]("count")))
-      .sortBy(_._1).map(_._2)
-
-    println(s"Computed category counts: ${Instant.now()}")
-    
-    def computeInfoGain(counts: Seq[Row]): Double = {
-      var sum = 0.0
-      val countPerCategory: Map[Int, Long] = counts
-        .map(row => (row.getAs[Int]("category"), row.getAs[Long]("count")))
-        .toMap
-      val wordFreq = countPerCategory.values.sum
-      val wordNotPresentFreq = numRecords - wordFreq
-      for (i <- categoryCounts.indices) {
-        val catFreq: Long = categoryCounts(i)
-        val wordCatFreq: Long = countPerCategory.getOrElse(i, 0)
-        val wordCatNotPresentFreq: Long = catFreq - wordCatFreq
-        if (wordCatNotPresentFreq > 0) {
-          sum += wordCatNotPresentFreq * math.log(numRecords * wordCatNotPresentFreq.toDouble / (wordNotPresentFreq * catFreq))
-        }
-        if (wordCatFreq > 0) {
-          sum += wordCatFreq * math.log(numRecords * wordCatFreq.toDouble / (wordFreq * catFreq))
-        }
-      }
-      sum / numRecords
-    }
-
-    val catIndexMap = typedLit(categoryIndices)
-    val computeInfoGainUdf = udf((counts: Seq[Row]) => computeInfoGain(counts))
-    val results = wordCategoryCounts
-      .select($"word", catIndexMap($"category").as("category"), $"count")
-      .select($"word", struct($"category", $"count").as("counts"))
-      .groupBy($"word").agg(collect_list($"counts").as("countPerCat"))
-      .select($"word", computeInfoGainUdf($"countPerCat").as("infoGain"))
-
-    wordCategoryCounts.unpersist()
-    data.unpersist()
-    val vocab = results.rdd
-      .top(vocabSize)(Ordering.by(_.getAs[Double]("infoGain")))
-      .map(_.getAs[String]("word"))
-//    val vocab = results.orderBy($"infoGain".desc).head(vocabSize).map(_.getAs[String]("word"))
-    println(s"Computed vocabulary in ${Duration.between(start, Instant.now).getSeconds} seconds")
-    vocab
   }
 
   private def printPipelineParams(pipeline: Pipeline): Unit = {
