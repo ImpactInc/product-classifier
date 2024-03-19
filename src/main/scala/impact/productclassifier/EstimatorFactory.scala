@@ -50,11 +50,4 @@ object EstimatorFactory {
       .setNumWorkers(16)
   }
   
-//  def randomForest(targetCol: String, numTrees: Int): RandomForestClassifier = {
-//    new RandomForestClassifier()
-//      .setFeaturesCol("features").setLabelCol(targetCol)
-//      .setMaxBins(16)
-//      .setNumTrees(numTrees)
-//  }
-  
 }

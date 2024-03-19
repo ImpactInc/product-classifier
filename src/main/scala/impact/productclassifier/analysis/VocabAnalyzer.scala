@@ -1,15 +1,14 @@
 package impact.productclassifier.analysis
 
+import impact.productclassifier.App.spark
+import impact.productclassifier.DataLoader
+import impact.productclassifier.feature._
+import Util.vectorizer
 import org.apache.spark.ml.Pipeline
-import org.apache.spark.ml.feature.{NGram, RegexTokenizer, StopWordsRemover, Tokenizer}
+import org.apache.spark.ml.feature.{RegexTokenizer, StopWordsRemover}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.{Column, DataFrame, Row}
 import org.apache.spark.storage.StorageLevel
-import impact.productclassifier.App.spark
-import VocabAnalyzer.cleanJsonString
-import impact.productclassifier.DataLoader
-import impact.productclassifier.feature.{SortedNGram, StopWords, Structs, TokenNormalizer, TokenizerFactory}
-import impact.productclassifier.hierarchical.EnsembleUtil.vectorizer
 
 import java.time.{Duration, Instant}
 

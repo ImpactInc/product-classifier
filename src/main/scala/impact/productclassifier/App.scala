@@ -2,12 +2,11 @@ package impact.productclassifier
 
 import impact.productclassifier.analysis.VocabAnalyzer
 import impact.productclassifier.dataproc.DataAggregator
-import impact.productclassifier.hierarchical.EnsembleTrainer
 import org.apache.spark.sql._
 import org.apache.spark.sql.functions.{from_json, length, lit, lower}
 import org.apache.spark.storage.StorageLevel
 import DataLoader.cleanJsonString
-import impact.productclassifier.feature.{Description2Vec, Structs}
+import impact.productclassifier.feature.{Structs}
 
 import java.time.{Duration, Instant}
 import scala.language.postfixOps
@@ -124,27 +123,5 @@ object App {
 
     println(s"Finished in ${Duration.between(start, Instant.now).getSeconds} seconds")
     spark.close()
-  }
-  
-  private def trainModel(): Unit = {
-    val df = DataLoader.readAllTrainingData()
-    
-    val start: Instant = Instant.now()
-
-    val maxCategoryDepth = 1
-    val trainingData = DataLoader.prepareTrainingData(df, maxCategoryDepth)
-
-    val (trainingSet, validationSet) = DataLoader.sampleDataSet(trainingData, 40000, 0.75)
-    trainingSet.cache()
-    validationSet.cache()
-
-    val prepTime = Duration.between(start, Instant.now).getSeconds
-    println(f"Prepared training data in $prepTime seconds")
-    
-    val trainingStart: Instant = Instant.now()
-    new EnsembleTrainer(spark, maxCategoryDepth).trainModels(trainingSet, validationSet)
-
-    val trainTime = Duration.between(trainingStart, Instant.now).getSeconds
-    println(f"Completed training in $trainTime seconds")
   }
 }

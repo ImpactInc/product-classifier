@@ -19,7 +19,7 @@ object DataLoader {
   import spark.implicits._
 
   private val categoryIdsByName: Map[String, Int] = GoogleTaxonomy.getGoogleCategoryMap.idsByName.toMap
-  private val rootCategories: Set[String] = GoogleTaxonomy.getGoogleCategoryMap.levelOne.keySet.toSet //- "mature" - "religious & ceremonial"
+  private val rootCategories: Set[String] = GoogleTaxonomy.getGoogleCategoryMap.levelOne.keySet.toSet
 
   def prepareTrainingData(df: DataFrame, maxCategoryDepth: Int): DataFrame = {
     val nameToIdMap: Column = typedLit(categoryIdsByName)
@@ -55,9 +55,6 @@ object DataLoader {
   
   def readProductDataDump(): DataFrame = {
     val walmartTaxonomy: WalmartTaxonomy = new WalmartTaxonomy().populate()
-//    val files: Array[String] = new File("gs://pds-dumps/ProductData")
-//      .listFiles()
-//      .map(_.getPath)
     val columns = Array(
       $"CampaignId".as("campaignId"),
       $"CatalogId".as("catalogId"),
@@ -122,7 +119,6 @@ object DataLoader {
       allData = allData.withColumn(name, column)
     }
     allData
-//      .filter(col("cat1").isInCollection(rootCategories))
   }
   
   def readNonWalmartData(): DataFrame = {
@@ -176,13 +172,6 @@ object DataLoader {
     result.na.fill("", Seq("name", "parentName", "manufacturer", "description", "labels"))
       .select(Array(nameCol, descCol, catCol) ++ rawColumns: _*)
       .filter(col("cat1").isInCollection(rootCategories))
-//    df.select($"name", $"parentName", $"manufacturer", $"description", $"labels", lower($"gmcCategory").as("category"))
-//      .withColumn("categories", split(col("category"), " > "))
-//      .select($"name" +: $"parentName" +: $"manufacturer" +: $"description" +: $"labels" +: $"category" +: (0 until 7).map(i => $"categories"(i).alias(s"cat${i + 1}")): _*)
-//      .filter(col("cat1").isInCollection(rootCategories))
-//      .na.fill("", Seq("name", "parentName", "manufacturer", "description", "labels"))
-//      .withColumn("temp", concat_ws(" ", $"name", $"parentName")).drop("name", "parentName")
-//      .withColumnRenamed("temp", "name")
   }
 
   def getFilePath(fileLocation: String): Path = {
@@ -224,15 +213,6 @@ object DataLoader {
     val catCols = (1 to categoryDepth).map(i => col(s"cat$i"))
     val combinedCatCol = regexp_replace(concat_ws(" > ", catCols: _*), " > \\Z", "")
     val sizes: Map[String, Int] = getCategoryFrequencyMap(categoryDepth, numPerCategory)
-//      spark.read.option("delimiter", ";").option("header", "true")
-//      .csv(getFilePath(f"Documents/PDS/Taxonomy/training-data/meta/category-counts").toString)
-//      .select($"category", $"count".cast(IntegerType))
-//      .filter(size(split($"category", ">")) <= categoryDepth)
-//      .collect()
-//      .map(row => (row.getAs[String]("category"), row.getAs[Int]("count")))
-//      .map { case (category, count) => (category, Math.min(count, numPerCategory)) }
-//      .groupBy(_._1).mapValues(_.map(_._2).sum)
-//      .mapValues(x => if (x >= minPerCategory) x else 0)
     
     println(sizes.toArray.sortBy(_._1).map(x => f"${x._1}%-55s -> ${x._2}%8s").mkString("\n"))
 
@@ -250,7 +230,6 @@ object DataLoader {
     val catCols = (1 to categoryDepth).map(i => col(s"cat$i"))
     val combinedCatCol = regexp_replace(concat_ws(" > ", catCols: _*), "(?: > )* > \\Z", "")
     val sizes: Map[String, Int] = getLabelFrequencyMap(categoryDepth, numPerCategory)
-//    println(sizes.toArray.sortBy(_._1).map(x => f"${x._1}%-150s -> ${x._2}%8s").mkString("\n"))
     val sizeByCategory = round(typedLit(sizes).apply($"combinedCatCol"))
     val w = Window.partitionBy($"combinedCatCol").orderBy(lit(0))
     val df2 = df

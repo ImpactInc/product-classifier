@@ -25,7 +25,6 @@ object DictionaryBuilder {
     "made", "more", "most",
     "not", "none",
     "out", "our", "only", "other", "ours", "or", "of",
-//    "part",
     "some", "such", "so", "same",
     "the", "this", "that", "them", "those", "they", "these", "their", "top", "than", "theirs", "to", "too",
     "until",
@@ -42,7 +41,6 @@ object DictionaryBuilder {
   private val normalizer: TokenNormalizer = new TokenNormalizer("tokens")
 
   private def applyRegex(column: Column, regex: String): Column = {
-//    length(regexp_extract(column, regex, 1)).leq(0)
     length(regexp_extract(lower(column), regex, 1)).leq(0)
   }
 
@@ -57,40 +55,9 @@ object DictionaryBuilder {
     applyRegex(w, regex5) && applyRegex(w, regex6) && applyRegex(w, regex7)
 
   def buildDictionary(): Unit = {
-//    val data = DataLoader.prepareTrainingData(DataLoader.readNonWalmartData(), 1)
-//    val df = DataLoader.sampleDataSet(data, 100000, 1.0)._1
-//      .select(concat_ws(" ", $"name", $"description", $"labels").as("text"))
     val data = DataLoader.readAggregatedData($"name", $"description", $"labels", $"cat1")
         .select(concat_ws(" ", $"name", $"description", $"labels").as("text"), $"cat1")
     val df = DataLoader.sampleDataSet(data.withColumn("rng", rand()), 100000, 1)
-
-//    val unit = "([a-zA-Z]{1,3}|(?:inch(?:es)?)|(?:percent)|(?:quot))".r
-//    println("in".matches(unit.regex))
-//    println("inch".matches(unit.regex))
-//    println("inches".matches(unit.regex))
-//    println("percent".matches(unit.regex))
-//    println("quot".matches(unit.regex))
-//    println("packa".matches(unit.regex))
-    
-//    val df = spark.sparkContext.parallelize(Array(
-//      "RedTeak", "BEW-3230", "5-peice", "BEECHWOOD", "DDW-501-T", "sophisticationApplication", "9.8*5.9*12.8inch",
-//      "12-seater", "6.6ozPackage", "effortFORGET", "79cmColour", "polyester2-Seater", "HM-SF-102-RD", "15cm.*Please",
-//      "grow.3-in-1", "VN-W03", "LDW1830", "FF-GO-2085-LEA", "90cm.Highly", "tOur", "32*26*46mm", "H21.5cm", "CertifiedTMOrganic",
-//      "41.7%", "1L", "17-in-1", "XAC90", "53*58cm", "PH-T8", "deep.8-ohms", "level.110dB", "60-Feet", "Megapixel.2.8", "2.Box",
-//      "94-piece", "8cc", "XSI-BL-9MM.Model", "84dB.Frequency", "9.7000.Length", "3.5000.Width", "RESTRICTIONThis", "200psiExtra"
-//    )).toDF("text")
-
-//    val documentAssembler = new DocumentAssembler().setInputCol("text").setOutputCol("document")
-//    val splitChars = Array(":", ";", "&", "\\?", "!", "：", "（", "【","】", "•", "✔", "\\+")
-//    val splitPattern = splitChars.mkString("|")
-//    val tokenizer = new Tokenizer().setInputCols("document").setOutputCol("token")
-//      .setMinLength(3).setMaxLength(30).setTargetPattern("[a-zA-Z0-9\\.,\\*/\\-%'\\&]+")//.setSplitPattern(splitPattern)
-//
-//    val pipeline = new Pipeline().setStages(Array(
-//      documentAssembler,
-//      tokenizer
-//    ))
-//    val words = pipeline.fit(df).transform(df).select($"token.result".as("tokens"))
     
     val pipeline = new Pipeline().setStages(Array(
       tokenizer,

@@ -1,21 +1,17 @@
 package impact.productclassifier.feature
 
 import org.apache.commons.lang.StringUtils
-import org.apache.spark.ml.{Transformer, UnaryTransformer}
+import org.apache.spark.ml.Transformer
 import org.apache.spark.ml.param.ParamMap
 import org.apache.spark.ml.util.{DefaultParamsWritable, Identifiable}
-import org.apache.spark.sql.functions.{col, udf}
+import org.apache.spark.sql.functions.udf
+import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.{DataFrame, Dataset}
-import org.apache.spark.sql.types.{ArrayType, DataType, StringType, StructType}
 
 import scala.collection.mutable.ArrayBuffer
-import scala.util.matching.Regex
 
 class TokenNormalizer(val featureName: String) extends Transformer with DefaultParamsWritable {
 
-  private val integer = "[0-9]+".r
-  private val float = "[0-9]+\\.[0-9]+".r
-  private val unit = "([a-zA-Z]{1,3}|(?:inch)|(?:percent)|(?:quot))".r
   private val measurement = "\\A[0-9]+(?:\\.?[0-9]+)?([°º]?[a-zA-Z]{0,9}(?:/[a-zA-Z])?|'|\"[a-zA-Z]{0,9}|%)\\Z".r
   private val measurementRange = "\\A[0-9]+(?:\\.?[0-9]+)?-[0-9]+(?:\\.?[0-9]+)?([°º]?[a-zA-Z]{0,9}(?:/[a-zA-Z])?|'|\"|%)\\Z".r
   private val twoDimensions = "\\A[0-9]+(?:\\.?[0-9]+)?[*xX×][0-9]+(?:\\.?[0-9]+)?([a-zA-Z]{0,9}|'|\")\\Z".r
@@ -30,10 +26,6 @@ class TokenNormalizer(val featureName: String) extends Transformer with DefaultP
     "[0-9]+[a-z]+[0-9]+".r,
     "[a-z]+[0-9]+[a-z]+".r
   )
-
-  //  private val regex3 = "(\\A[bcdfghjklmnpqrstvwxz]{2,3}\\z)"
-//  private val regex6 = "([a-z]+[0-9]+[a-z]+)"
-//  private val regex7 = "\\A((?:[a-z]+-)*[a-z]*[0-9]+(?:-[0-9]+)*)(?:-[a-z]+)*\\Z"
 
   override def transform(df: Dataset[_]): DataFrame = {
     val transformUdf = udf(this.createTransformFunc)
@@ -110,7 +102,7 @@ class TokenNormalizer(val featureName: String) extends Transformer with DefaultP
       ss = replaceDuplicatePunctuation(ss, ",")
       ss = replaceDuplicatePunctuation(ss, "\\.")
       ss = "(.)[.,*]+([^0-9\\-\\s])".r.replaceAllIn(ss, "$1 $2")
-      ss = "([^0-9\\-])[.,]+(.)".r.replaceAllIn(ss, "$1 $2") // TODO:
+      ss = "([^0-9\\-])[.,]+(.)".r.replaceAllIn(ss, "$1 $2")
     }
     if (ss.contains("/")) {
       ss = "(.)/(..)".r.replaceAllIn(ss, "$1 $2")
@@ -143,70 +135,12 @@ class TokenNormalizer(val featureName: String) extends Transformer with DefaultP
     true
   }
   
-  private def getMatchGroups(token: String, regex: Regex): Seq[String] = {
-    val opt = regex.findFirstMatchIn(token)
-    if (opt.isEmpty) {
-      Seq(token)
-    } else {
-      opt.get.subgroups
-    }
-  }
-  
-  private def cleanApostrophes(token: String): String = {
-//    val alpha = "\\A[a-zA-Z\\-'\".*,]+\\Z".r
-//    if (token.matches(alpha.regex)) {
-//      val tok = StringUtils.replaceEach(token, Array("'t", "'s"), Array("t", ""))
-//      val clean = StringUtils.replaceEach(tok, Array("\"", "'"), Array("", ""))
-//      stripTrailingPunctuation(clean)
-//    } else {
-//      var tok = token
-//      if (token.startsWith("\"") && token.endsWith("\"")) {
-//        tok = tok.substring(1, tok.length - 1)
-//      }
-//      StringUtils.replaceEach(tok, Array("\"\"", "''"), Array("\"", "\""))
-//    }
-    StringUtils.replaceEach(token, Array("'t", "'s"), Array("t", ""))
-  }
-  
-  private def cleanCommas(token: String): Seq[String] = {
-    if (containsDigit(token)) {
-      if (token.contains(".")) {
-        val number = "[0-9]+,[0-9]{3}(?:,[0-9]{3})*\\.[0-9]+".r // x,xxx,xxx.xx
-        if (token.matches(number.regex)) {
-          Seq(token.replace(",", ""))
-        } else {
-          Seq(token)
-        }
-      } else {
-        val number = "[0-9]+,[0-9]+".r // x,xx
-        if (token.matches(number.regex)) {
-          Seq(token.replace(",", ""))
-        } else {
-          Seq(token)
-        }
-      }
-    } else {
-      token.split(',').map(stripTrailingPunctuation)
-    }
-  }
-  
   private def cleanCommasFromNumber(token: String): String = {
     var tok = ",(0-9){3}".r.replaceAllIn(token, "$1")
     if (tok.contains(',')) {
       tok = tok.replace(",", "")
     }
     tok
-//    val number = "[0-9]{1,2},[0-9]{3}(?:,[0-9]{3})*(?:\\.[0-9]+)?".r // x,xxx,xxx.xx
-//    if (token.matches(number.regex)) {
-//      token.replace(",", "")
-//    } else {
-//      val number = "[0-9]+,[0-9]+".r // x,xx
-//      if (token.matches(number.regex)) {
-//        token.replace(",", ".")
-//      } else {
-//        token
-//      }
-//    }
   }
   
   private def containsDigit(token: String): Boolean = {

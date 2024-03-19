@@ -1,6 +1,9 @@
 package impact.productclassifier
 
-import impact.productclassifier.feature.{SortedNGram, StopWords, TokenNormalizer, TokenizerFactory}
+import impact.productclassifier.App.spark
+import impact.productclassifier.EstimatorFactory.logistic
+import impact.productclassifier.feature.{TokenNormalizer, TokenizerFactory}
+import impact.productclassifier.feature.Util.{oneHotEncoder, stringIndexer, vectorizer}
 import impact.productclassifier.taxonomy.{Category, Taxonomy}
 import ml.dmlc.xgboost4j.scala.spark.XGBoostClassificationModel
 import org.apache.spark.ml.Pipeline
@@ -11,14 +14,11 @@ import org.apache.spark.ml.feature._
 import org.apache.spark.ml.functions.vector_to_array
 import org.apache.spark.mllib.evaluation.MulticlassMetrics
 import org.apache.spark.mllib.linalg.Matrix
+import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.IntegerType
 import org.apache.spark.sql.{Column, DataFrame, Row, SaveMode}
 import org.apache.spark.storage.StorageLevel
-import App.spark
-import EstimatorFactory.{logistic, xgbClassifier}
-import impact.productclassifier.hierarchical.EnsembleUtil.{oneHotEncoder, stringIndexer, vectorizer}
-import org.apache.spark.sql.expressions.Window
 
 import java.time.{Duration, Instant}
 import scala.annotation.tailrec
@@ -29,58 +29,28 @@ object Tester {
   import spark.implicits._
 
   private val taxonomy: Taxonomy = new Taxonomy().populate()
-  private val level1Names: Seq[String] = taxonomy.root.getSubCategories.map(_.name).sorted
-//  private val level2Names: Seq[String] = (
-//    level1Names ++ 
-//    taxonomy.root.getSubCategories.flatMap(cat => cat.getSubCategories.map(_.name).map(subCat => cat.name + " > " + subCat))
-//    ).sorted
   
   private val categoryDepth: Int = 7
   private val numPerCategory: Int = 10000
   private val trainFrac: Double = 0.75
   private val minPerCategory = 1000
 
-  def run2(): Unit = {
+  def run(): Unit = {
     println(s"Category Depth: $categoryDepth")
     println(s"Sample size per category: $numPerCategory")
     println(s"Train fraction: $trainFrac")
     val features = Array(
-//      "color",
-//      "material",
       "gender",
       "ageGroup",
       "name",
       "description",
-//      "manufacturer",
-//      "dollarPrice",
     ).map(col)
     val catCols = (1 to categoryDepth).map(i => col(s"cat$i"))
     val df = DataLoader.readAllData(features ++ catCols: _*)
     val normalized = normalizeCategoryIds(df, categoryDepth)
-//      .withColumn("materialTemp", trim(regexp_replace(lower($"material"), "[0-9%]", "")))
-//      .withColumn("colorTemp", transform($"color", c => regexp_replace(lower(trim(c)), "grey", "gray")))
-//      .withColumn("colorTemp2", filter($"colorTemp", c => length(c).geq(3)))
-//      .withColumn("colorTemp3", when($"colorTemp2".isNull, array().cast(ArrayType(StringType))).otherwise($"colorTemp2"))
-//      .withColumn("manufacturerTokens", array($"manufacturer"))
-//      .withColumn("dollarPriceTemp", when($"dollarPrice".isNull, typedLit(BigDecimal.exact(-1))).otherwise($"dollarPrice"))
-//      .drop("material", "color", "colorTemp", "colorTemp2", "manufacturer", "dollarPrice")
-//      .withColumnRenamed("materialTemp", "material")
-//      .withColumnRenamed("colorTemp3", "colorTokens")
-//      .withColumnRenamed("dollarPriceTemp", "dollarPrice")
-
-    val splits: ArrayBuffer[Double] = ArrayBuffer()
-    splits.append(Double.NegativeInfinity, 0, 1)
-    splits.appendAll((2 until 20 by 2).map(_.toDouble).toArray)
-    splits.appendAll((20 until 100 by 10).map(_.toDouble).toArray)
-    splits.appendAll((100 until 1000 by 100).map(_.toDouble).toArray)
-    splits.appendAll((1000 to 10000 by 1000).map(_.toDouble).toArray)
-    splits.appendAll((20000 to 100000 by 20000).map(_.toDouble).toArray)
-    splits.append(1e6, Double.PositiveInfinity)
 
     val (trainSet, testSet) = DataLoader.sampleAndSplitDataSet(normalized, numPerCategory, categoryDepth, trainFrac)
     trainSet.persist(StorageLevel.DISK_ONLY)
-//    val nameVocab = computeInfoGainVocabulary(trainSet.withColumn("words", $"name"), 30000)
-//    val descVocab = computeInfoGainVocabulary(trainSet.withColumn("words", $"description"), 30000)
     
     val name2Vec: Word2Vec = new Word2Vec()
       .setInputCol("nameTokens").setOutputCol("nameVector")
@@ -119,119 +89,23 @@ object Tester {
       stringIndexer("ageGroup"),
       oneHotEncoder("gender"),
       oneHotEncoder("ageGroup"),
-//      tokenizer("material").setPattern("\\s*[,/|:;]\\s*").setGaps(true).setMinTokenLength(3),
       TokenizerFactory.tokenizer("name"),
       TokenizerFactory.tokenizer("description"),
       new TokenNormalizer("name"),
       new TokenNormalizer("description"),
-//      vectorizer("material", 200),
-//      vectorizer("color", 1000),
       name2VecModel,
-//      desc2VecModel,
-//      vectorizer("name", 20000).setBinary(true),
-//      vectorizer("description", 20000).setBinary(true),
-//      new CountVectorizerModel(nameVocab).setInputCol("nameTokens").setOutputCol("nameVector").setBinary(true),
-//      new CountVectorizerModel(descVocab).setInputCol("descriptionTokens").setOutputCol("descriptionVector").setBinary(true),
-//      vectorizer("manufacturer", 5000),
-//      bucketizer("dollarPrice", splits.toArray).setHandleInvalid("keep"),
+      desc2VecModel,
       new VectorAssembler().setOutputCol("features").setInputCols(Array(
         "genderVector",
         "ageGroupVector",
-//        "colorVector",
-//        "materialVector",
         "nameVector",
-//        "descriptionVector",
-//        "manufacturerVector",
-//        "dollarPriceVector",
+        "descriptionVector",
       )),
-//      logistic("target", 125, 0.9, 0.0).setMaxBlockSizeInMB(256)
-//      randomForest("target", 30, 32, 9)
-//        .setFeatureSubsetStrategy("sqrt")
-//      decisionTree("target", 30, 32)
-//        .setCacheNodeIds(true)
-//        .setMaxMemoryInMB(1024)
-//        .setCheckpointInterval(5)
-//        .setMinInstancesPerNode(100)
-//        .setMinWeightFractionPerNode(0.00075)
-      xgbClassifier("target")
+      logistic("target", 125, 0.9, 0.0).setMaxBlockSizeInMB(256)
     ))
 
     printPipelineParams(pipeline)
     evaluateOnce(pipeline, "target", trainSet, testSet)
-  }
-  
-  def run(): Unit = {
-    val df = DataLoader.readAggregatedData($"name" +: (1 to 1).map(i => col(s"cat$i")): _*)
-//    val df = DataLoader.readAggregatedData($"name" +: $"description" +: array($"manufacturer").as("manufacturerTokens") +: (1 to 1).map(i => col(s"cat$i")): _*)
-//      .select(concat_ws(" ", $"name", $"description").as("combo"), $"cat1")
-//      .drop("name", "description")
-//      .withColumnRenamed("combo", "name")
-//      .select($"name", concat_ws(" ", $"description", $"labels").as("description"), $"cat1")
-    val sample = sampleDataset(df, 100000)
-    val normalized = normalizeCategoryIds(sample, taxonomy.root)//.cache()
-
-    val pipeline = new Pipeline().setStages(Array(
-      TokenizerFactory.tokenizer("name"),
-      new TokenNormalizer("name"),
-      new StopWordsRemover().setInputCol("nameTokens").setOutputCol("nameTokensFiltered")
-        .setCaseSensitive(true).setStopWords(StopWords.FOR_SORTED_BIGRAMS),
-      new SortedNGram().setInputCol("nameTokensFiltered").setOutputCol("nameBigramTokens").setN(2),
-      vectorizer("name", 15000),
-      vectorizer("nameBigram", 20000),
-//      TokenizerFactory.tokenizer("description"),
-//      new TokenNormalizer("description"),
-//      vectorizer("description", 20000),
-//      vectorizer("manufacturer", 5000),
-      new VectorAssembler().setOutputCol("features").setInputCols(Array(
-        "nameVector",
-        "nameBigramVector",
-//        "descriptionVector",
-//        "manufacturerVector"
-      )),
-//      logistic("cat1", 30, 0.0, 0.0)
-      logistic("target", 20, 0.9, 0.000001)
-    ))
-    
-//    normalized.cache()
-//    val tokenizer = TokenizerFactory.tokenizer("description")
-//    val tokenNormalizer = new TokenNormalizer("description")
-//    val stopWordsRemover = new StopWordsRemover().setInputCol("descriptionTokens").setOutputCol("filteredTokens")
-//      .setCaseSensitive(true).setStopWords(StopWords.LDA)
-//    val prepPipeline = new Pipeline()
-//      .setStages(Array(
-//        tokenizer, 
-//        tokenNormalizer, 
-//        stopWordsRemover, 
-//        vectorizer("filtered", 20000),
-//        new LDA().setFeaturesCol("filteredVector")
-//          .setK(25)
-//          .setSubsamplingRate(0.01).setMaxIter(100)
-//          .setOptimizeDocConcentration(true).setLearningOffset(128)))
-//      .fit(normalized)
-//    println(Instant.now())
-//    normalized.unpersist()
-//
-//    val pipeline = new Pipeline().setStages(Array(
-//      tokenizer,
-//      tokenNormalizer,
-//      stopWordsRemover,
-//      prepPipeline.stages(3).asInstanceOf[CountVectorizerModel],
-//      prepPipeline.stages(4).asInstanceOf[LocalLDAModel],
-//      new VectorAssembler().setOutputCol("features").setInputCols(Array(
-//        "topicDistribution"
-//      )),
-//      decisionTree("target", 11, 32)
-////        .setMinInstancesPerNode(10)
-//        .setMinWeightFractionPerNode(0.01)
-////      logistic("target", 20, 0.9, 0.0001)
-////      logistic("target", 20, 0.9, 0.0)
-////      neuralNetwork("target", 20, 0.03, Array(100, 20, 19))
-//    ))
-
-    printPipelineParams(pipeline)
-    
-    evaluate(pipeline, "target", normalized)
-//    normalized.unpersist()
   }
   
   def analyzeTermWeights(): Unit = {
