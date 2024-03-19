@@ -1,10 +1,11 @@
 package impact.productclassifier.analysis
 
-import impact.productclassifier.{App, DataLoader}
+import impact.productclassifier.DataLoader
+import impact.productclassifier.feature.StopWords
 import impact.productclassifier.taxonomy.{Category, Taxonomy}
 import org.apache.spark.ml.feature.{RegexTokenizer, StopWordsRemover}
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.functions.{array_join, array_union, col, concat_ws}
+import org.apache.spark.sql.functions.{col, concat_ws}
 
 import scala.annotation.tailrec
 import scala.collection.mutable
@@ -19,7 +20,7 @@ class DatasetAnalyzer(val spark: SparkSession) {
 
   private val stopWordRemover: StopWordsRemover = new StopWordsRemover()
     .setInputCol("tokens").setOutputCol("filteredTokens")
-    .setCaseSensitive(false).setStopWords(App.STOP_WORDS)
+    .setCaseSensitive(false).setStopWords(StopWords.STOP_WORDS)
 
   def analyze(): Unit = {
     val taxonomy = new Taxonomy().populate()
