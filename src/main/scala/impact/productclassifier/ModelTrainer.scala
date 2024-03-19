@@ -4,7 +4,7 @@ import org.apache.spark.ml.feature.Word2Vec
 import org.apache.spark.sql.functions.{col, concat_ws}
 import org.apache.spark.storage.StorageLevel
 import App.spark
-import impact.productclassifier.feature.{TokenNormalizer, TokenizerFactory}
+import impact.productclassifier.feature.{TokenNormalizer, TokenizerFactory, Util}
 
 object ModelTrainer {
 
@@ -26,13 +26,7 @@ object ModelTrainer {
     println(s"Features partitions: ${features.rdd.getNumPartitions}")
     val name2VecModel = name2Vec.fit(features)
     println(s"Num records: ${features.count()}")
-    val params = name2Vec.extractParamMap().toSeq
-      .filter(!_.param.name.contains("Col"))
-      .filter(!_.param.name.contains("seed"))
-      .filter(!_.param.name.contains("numPartitions"))
-      .sortBy(_.param.name)
-      .map(pair => s"${pair.param.name}=${pair.value}")
-      .mkString("_") + "_manufacturer"
+    val params = Util.getWord2VecParamString(name2Vec)
     println("name2vec")
     println(params)
     name2VecModel.write.overwrite().save(s"gs://product-classifier/model/name2vec/$params/model")
@@ -57,13 +51,7 @@ object ModelTrainer {
     println(s"Features partitions: ${features.rdd.getNumPartitions}")
     val desc2VecModel = desc2Vec.fit(features)
     println(s"Num records: ${features.count()}")
-    val params = desc2Vec.extractParamMap().toSeq
-      .filter(!_.param.name.contains("Col"))
-      .filter(!_.param.name.contains("seed"))
-      .filter(!_.param.name.contains("numPartitions"))
-      .sortBy(_.param.name)
-      .map(pair => s"${pair.param.name}=${pair.value}")
-      .mkString("_")
+    val params = Util.getWord2VecParamString(desc2Vec)
     println("desc2vec")
     println(params)
     desc2VecModel.write.overwrite().save(s"gs://product-classifier/model/desc2vec/$params/model")

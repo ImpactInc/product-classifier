@@ -18,15 +18,19 @@ object Util {
   
   
   def loadWord2VecModel(spec: Word2Vec, location: String): Word2VecModel = {
-    val params = spec.extractParamMap().toSeq
+    val params = getWord2VecParamString(spec)
+    Word2VecModel.load(s"$location/$params/model")
+  }
+  
+  def getWord2VecParamString(spec: Word2Vec): String = {
+    spec.extractParamMap().toSeq
       .filter(!_.param.name.contains("Col"))
       .filter(!_.param.name.contains("seed"))
       .filter(!_.param.name.contains("numPartitions"))
       .sortBy(_.param.name)
       .map(pair => s"${pair.param.name}=${pair.value}")
       .mkString("_")
-    Word2VecModel.load(s"$location/$params/model")
-  } 
+  }
 
   def round(num: Double, places: Int): BigDecimal = {
     BigDecimal(num).setScale(places, BigDecimal.RoundingMode.HALF_UP)
